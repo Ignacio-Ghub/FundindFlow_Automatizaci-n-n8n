@@ -16,7 +16,7 @@ Sistema Inteligente de Monitorización y Gestión de Convocatorias de Financiaci
 ## 🏗️ Arquitectura del Sistema
 [cite_start]El sistema se compone de **5 flujos especializados** orquestados en **n8n Cloud (v2.9.3)**[cite: 22, 525, 839]:
 
-1. [cite_start]**Módulo de Captura Multicanal:** Monitorización continua (cada 6h) de fuentes RSS (EU Funding, DevEx, FundsforNGOs) y scraping ético de portales institucionales como AECID y PNUD [cite: 541-544, 580, 922].
+1. [cite_start]**Módulo de Captura Multicanal:** Monitorización continua (cada 6h) de fuentes RSS (Grant4EU, TerraViva Grants, FundsforNGOs) y scraping ético de portales institucionales como AECID y PNUD [cite: 541-544, 580, 922].
 2. [cite_start]**Módulo de Extracción con IA:** Implementación de **OpenAI GPT-4o-mini** para estructurar campos técnicos (fechas, montos, sectores, elegibilidad) a partir de texto semi-estructurado con una precisión superior al 90% [cite: 17, 548-551, 629-631, 1025].
 3. [cite_start]**Módulo de Alertas Segmentadas:** Notificaciones proactivas vía Telegram, Slack y Gmail, filtradas por lógica condicional según sector temático y región geográfica [cite: 556, 743-767].
 4. [cite_start]**Gestión de Pipeline:** Control integral del ciclo de vida de la propuesta (desde la detección hasta la resolución definitiva) centralizado en Google Sheets [cite: 31, 567-575, 720-721].
