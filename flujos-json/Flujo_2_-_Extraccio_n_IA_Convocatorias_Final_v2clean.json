@@ -1,0 +1,1319 @@
+{
+  "name": "Flujo 2 - Extracción IA Convocatorias Final",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Convocatorias"
+        },
+        "event": "rowAdded",
+        "options": {}
+      },
+      "id": "63cd81cc-ed4a-4d8f-992d-c6435b3be20d",
+      "name": "Google Sheets Trigger1",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3664,
+        384
+      ],
+      "credentials": {
+        "googleSheetsTriggerOAuth2Api": {
+          "id": "GOOGLE_SHEETS_TRIGGER_CREDENTIAL_ID",
+          "name": "Google Sheets Trigger OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "id": "5421072c-af16-45f3-b2d1-cbc3b1895c27",
+      "name": "Schedule: Procesar pendientes (cada 1h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -3728,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Convocatorias"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Procesado_IA",
+              "lookupValue": "FALSO"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d34b650b-dc93-44a8-b967-bd5c3995c7fb",
+      "name": "Sheets: Leer pendientes",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -3472,
+        704
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "a0b68ee9-d038-48b6-82d1-4117a61973aa",
+      "name": "SplitInBatches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -3216,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst raw = item.json.Contenido_Raw || '';\nconst truncated = raw.length > 2000 ? raw.substring(0, 2000) + '...[truncado]' : raw;\nreturn [{ json: { ...item.json, Contenido_Truncado: truncated } }];"
+      },
+      "id": "28e1c16c-5f94-427a-a460-11d6845690c6",
+      "name": "Code: Preparar contenido (Trigger)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3408,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst raw = item.json.Contenido_Raw || '';\nconst truncated = raw.length > 2000 ? raw.substring(0, 2000) + '...[truncado]' : raw;\nreturn [{ json: { ...item.json, Contenido_Truncado: truncated } }];"
+      },
+      "id": "f05ec947-a4da-4068-bd52-15f7f9966dda",
+      "name": "Code: Preparar contenido (Schedule)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2960,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Extrae del siguiente texto de convocatoria estos 4 campos y devuelve SOLO un JSON:\n- nombre_convocatoria: título oficial\n- donante: organización financiadora\n- fecha_limite: fecha límite (YYYY-MM-DD o null)\n- monto_maximo: monto máximo en números sin símbolos (o null)\n\nTexto:\n{{ $json.Contenido_Truncado }}\n\nResponde ÚNICAMENTE con el JSON, sin markdown ni texto adicional."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "95a79edf-933c-49ed-ab65-5de05a8b88f2",
+      "name": "OpenAI: Extraer (Trigger)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.4,
+      "position": [
+        -3152,
+        384
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI API"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Extrae del siguiente texto de convocatoria estos 4 campos y devuelve SOLO un JSON:\n- nombre_convocatoria: título oficial\n- donante: organización financiadora\n- fecha_limite: fecha límite (YYYY-MM-DD o null)\n- monto_maximo: monto máximo en números sin símbolos (o null)\n\nTexto:\n{{ $json.Contenido_Truncado }}\n\nResponde ÚNICAMENTE con el JSON, sin markdown ni texto adicional."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1ce19905-eb22-4963-896a-dd3d96f773a5",
+      "name": "OpenAI: Extraer (Schedule)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.4,
+      "position": [
+        -2704,
+        704
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI API"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nlet sourceId;\ntry { sourceId = $('Google Sheets Trigger1').first().json.ID; } catch(e) { sourceId = null; }\nif (!sourceId) sourceId = item.json.ID || null;\n\nconst rawContent = item.json.message?.content || item.json.text || '';\nconst isError = rawContent.toLowerCase().includes('too many') || rawContent.toLowerCase().includes('rate limit') || !!item.json.error;\n\nif (isError) {\n  return [{ json: { valid: false, errors: ['Error OpenAI: rate limit'], warnings: [], extracted_data: null, source_id: sourceId } }];\n}\n\nlet data;\ntry {\n  let content = rawContent || JSON.stringify(item.json);\n  content = content.replace(/^```json\\s*/i, '').replace(/^```\\s*/i, '').replace(/```\\s*$/i, '').trim();\n  data = typeof content === 'string' ? JSON.parse(content) : content;\n} catch (e) {\n  return [{ json: { valid: false, errors: [`Error parseando: ${e.message}`], warnings: [], extracted_data: null, source_id: sourceId } }];\n}\n\nconst errors = [];\nconst warnings = [];\nif (!data.nombre_convocatoria) errors.push('Falta: nombre_convocatoria');\nif (!data.donante) errors.push('Falta: donante');\nif (!data.fecha_limite) warnings.push('Sin fecha_limite');\nif (!data.monto_maximo) warnings.push('Sin monto_maximo');\n\nreturn [{ json: { valid: errors.length === 0, errors, warnings, extracted_data: data, source_id: sourceId } }];"
+      },
+      "id": "498a8e28-06f0-4b56-9d22-3ac6d1ad619a",
+      "name": "Code: Validar (Trigger)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2896,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst sourceId = item.json.ID || null;\n\nconst rawContent = item.json.message?.content || item.json.text || '';\nconst isError = rawContent.toLowerCase().includes('too many') || rawContent.toLowerCase().includes('rate limit') || !!item.json.error;\n\nif (isError) {\n  return [{ json: { valid: false, errors: ['Error OpenAI: rate limit'], warnings: [], extracted_data: null, source_id: sourceId } }];\n}\n\nlet data;\ntry {\n  let content = rawContent || JSON.stringify(item.json);\n  content = content.replace(/^```json\\s*/i, '').replace(/^```\\s*/i, '').replace(/```\\s*$/i, '').trim();\n  data = typeof content === 'string' ? JSON.parse(content) : content;\n} catch (e) {\n  return [{ json: { valid: false, errors: [`Error parseando: ${e.message}`], warnings: [], extracted_data: null, source_id: sourceId } }];\n}\n\nconst errors = [];\nconst warnings = [];\nif (!data.nombre_convocatoria) errors.push('Falta: nombre_convocatoria');\nif (!data.donante) errors.push('Falta: donante');\nif (!data.fecha_limite) warnings.push('Sin fecha_limite');\nif (!data.monto_maximo) warnings.push('Sin monto_maximo');\n\nreturn [{ json: { valid: errors.length === 0, errors, warnings, extracted_data: data, source_id: sourceId } }];"
+      },
+      "id": "ca0bc2b6-5fd4-4197-90b8-8bfd6291d59b",
+      "name": "Code: Validar (Schedule)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2448,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.valid }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "e16f2fbd-e869-4887-a8f5-c76063aa8e1c",
+      "name": "IF: ¿Válida? (Trigger)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -2640,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.valid }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "a9aed836-81bb-421e-ba9d-6ebc45b9cd48",
+      "name": "IF: ¿Válida? (Schedule)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -2192,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Convocatorias"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID": "={{ $json.source_id }}",
+            "Nombre": "={{ $json.extracted_data.nombre_convocatoria }}",
+            "Donante": "={{ $json.extracted_data.donante }}",
+            "Fecha_Limite": "={{ $json.extracted_data.fecha_limite ?? '' }}",
+            "Monto": "={{ $json.extracted_data.monto_maximo ?? '' }}",
+            "Procesado_IA": "VERDADERO",
+            "Estado": "en_análisis"
+          },
+          "matchingColumns": [
+            "ID"
+          ],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Nombre",
+              "displayName": "Nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "URL",
+              "displayName": "URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": false,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "Contenido_Raw",
+              "displayName": "Contenido_Raw",
+              "required": false,
+              "defaultMatch": false,
+              "display": false,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "Estado",
+              "displayName": "Estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Donante",
+              "displayName": "Donante",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Fecha_Limite",
+              "displayName": "Fecha_Limite",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Monto",
+              "displayName": "Monto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Procesado_IA",
+              "displayName": "Procesado_IA",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "f478d4ea-62d4-4cd0-a299-845c96f17a75",
+      "name": "Sheets: Actualizar OK (Trigger)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -2384,
+        288
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Convocatorias"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID": "={{ $json.source_id }}",
+            "Nombre": "={{ $json.extracted_data.nombre_convocatoria }}",
+            "Donante": "={{ $json.extracted_data.donante }}",
+            "Fecha_Limite": "={{ $json.extracted_data.fecha_limite ?? '' }}",
+            "Monto": "={{ $json.extracted_data.monto_maximo ?? '' }}",
+            "Procesado_IA": "VERDADERO",
+            "Estado": "en_análisis"
+          },
+          "matchingColumns": [
+            "ID"
+          ],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Nombre",
+              "displayName": "Nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "URL",
+              "displayName": "URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": false,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "Contenido_Raw",
+              "displayName": "Contenido_Raw",
+              "required": false,
+              "defaultMatch": false,
+              "display": false,
+              "type": "string",
+              "canBeUsedToMatch": false,
+              "removed": true
+            },
+            {
+              "id": "Estado",
+              "displayName": "Estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Donante",
+              "displayName": "Donante",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Fecha_Limite",
+              "displayName": "Fecha_Limite",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Monto",
+              "displayName": "Monto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Procesado_IA",
+              "displayName": "Procesado_IA",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "4ac71ef4-a51d-48d3-93a3-73b806680468",
+      "name": "Sheets: Actualizar OK (Schedule)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -1872,
+        480
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Convocatorias"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID": "={{ $json.source_id }}",
+            "Estado": "requiere_revision",
+            "Procesado_IA": "ERROR"
+          },
+          "matchingColumns": [
+            "ID"
+          ],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Estado",
+              "displayName": "Estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Procesado_IA",
+              "displayName": "Procesado_IA",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "38ac5896-edb1-48fb-9260-ce19e9b5a171",
+      "name": "Sheets: Requiere Revisión (Trigger)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -2384,
+        480
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Convocatorias"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID": "={{ $json.source_id }}",
+            "Estado": "requiere_revision",
+            "Procesado_IA": "ERROR"
+          },
+          "matchingColumns": [
+            "ID"
+          ],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Estado",
+              "displayName": "Estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Procesado_IA",
+              "displayName": "Procesado_IA",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "f44a4ed5-a4c2-46a9-aef1-1e73110d75d9",
+      "name": "Sheets: Requiere Revisión (Schedule)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -1936,
+        816
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Ejecuciones",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "Flujo 2 - Extracción IA",
+            "Evento": "Extracción exitosa",
+            "Detalle": "={{ $json.ID_Convocatoria }}",
+            "Timestamp": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Detalle",
+              "displayName": "Detalle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "f2ced04e-a7c9-45af-b610-419ac25a0db6",
+      "name": "Log: Extracción OK",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -1664,
+        288
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Errores",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "Flujo 2 - Extracción IA",
+            "Evento": "Validación fallida",
+            "Detalle": "={{ 'ID: ' + $json.source_id + ' | ' + $json.errors.join(', ') }}",
+            "Timestamp": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Detalle",
+              "displayName": "Detalle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "d496aab4-829f-4afd-99b4-8aa52b96c70d",
+      "name": "Log: Revisión",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -1680,
+        704
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "52967933-9657-4394-b4d4-17a3c4139117",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3728,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  workflow_name: $workflow.name,\n  node_name: $json.execution?.error?.node || 'Desconocido',\n  error_message: $json.execution?.error?.message || 'Sin mensaje',\n  timestamp: new Date().toISOString()\n}}];"
+      },
+      "id": "c5b31c52-71e9-4bf2-88a5-6602ef50bc7b",
+      "name": "Code: Formatear error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3472,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Errores",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "={{ $json.workflow_name }}",
+            "Evento": "={{ $json.node_name }}",
+            "Detalle": "={{ $json.error_message }}",
+            "Timestamp": "={{ $json.timestamp }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Detalle",
+              "displayName": "Detalle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "d8b5a26d-ee5c-4d16-babb-19894c923770",
+      "name": "Log: Error global",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -3216,
+        1008
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": 1557804530,
+          "mode": "list",
+          "cachedResultName": "Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1557804530"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID_Convocatoria": "={{ $json.ID }}",
+            "Nombre": "={{ $json.Nombre }}",
+            "Estado": "={{ $json.Estado }}",
+            "Monto_Solicitado": "={{ $json.Monto }}",
+            "Donante": "={{ $json.Donante }}",
+            "Fecha_Limite": "={{ $json.Fecha_Limite }}",
+            "Convocatoria_URL": "={{ $json.url_final }}",
+            "Fecha_Creacion": "={{ $json.fecha_creacion_final }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID_Convocatoria",
+              "displayName": "ID_Convocatoria",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Nombre",
+              "displayName": "Nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Estado",
+              "displayName": "Estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Responsable",
+              "displayName": "Responsable",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Fecha_Limite",
+              "displayName": "Fecha_Limite",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Donante",
+              "displayName": "Donante",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Monto_Solicitado",
+              "displayName": "Monto_Solicitado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Convocatoria_URL",
+              "displayName": "Convocatoria_URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Fecha_Envio",
+              "displayName": "Fecha_Envio",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Notas",
+              "displayName": "Notas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Fecha_Creacion",
+              "displayName": "Fecha_Creacion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "78c4e407-88e1-4286-b28d-d83bbfe28654",
+      "name": "Sheets: Crear en Pipeline",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -1936,
+        288
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\n// Obtener URL — buscar en todas las posibles fuentes\nlet url = '';\ntry { url = $('Google Sheets Trigger1').first().json.URL || ''; } catch(e) {}\nif (!url) url = item.url || item.URL || item.url_conv || '';\n\n// Fecha hoy en formato YYYY-MM-DD\nconst hoy = new Date();\nconst fecha = hoy.getFullYear() + '-' + \n  String(hoy.getMonth()+1).padStart(2,'0') + '-' + \n  String(hoy.getDate()).padStart(2,'0');\n\nreturn [{ json: {\n  ...item,\n  url_final: url,\n  fecha_creacion_final: fecha\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2176,
+        288
+      ],
+      "id": "6656258e-60e2-41fb-b521-b21013072c93",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Google Sheets Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Code: Preparar contenido (Trigger)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Preparar contenido (Trigger)": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Extraer (Trigger)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Extraer (Trigger)": {
+      "main": [
+        [
+          {
+            "node": "Code: Validar (Trigger)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Validar (Trigger)": {
+      "main": [
+        [
+          {
+            "node": "IF: ¿Válida? (Trigger)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: ¿Válida? (Trigger)": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Actualizar OK (Trigger)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sheets: Requiere Revisión (Trigger)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Actualizar OK (Trigger)": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Requiere Revisión (Trigger)": {
+      "main": [
+        [
+          {
+            "node": "Log: Revisión",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule: Procesar pendientes (cada 1h)": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Leer pendientes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Leer pendientes": {
+      "main": [
+        [
+          {
+            "node": "SplitInBatches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SplitInBatches": {
+      "main": [
+        [
+          {
+            "node": "Code: Preparar contenido (Schedule)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Preparar contenido (Schedule)": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Extraer (Schedule)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Extraer (Schedule)": {
+      "main": [
+        [
+          {
+            "node": "Code: Validar (Schedule)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Validar (Schedule)": {
+      "main": [
+        [
+          {
+            "node": "IF: ¿Válida? (Schedule)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: ¿Válida? (Schedule)": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Actualizar OK (Schedule)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sheets: Requiere Revisión (Schedule)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Actualizar OK (Schedule)": {
+      "main": [
+        [
+          {
+            "node": "SplitInBatches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Requiere Revisión (Schedule)": {
+      "main": [
+        [
+          {
+            "node": "SplitInBatches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code: Formatear error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Formatear error": {
+      "main": [
+        [
+          {
+            "node": "Log: Error global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Crear en Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Log: Extracción OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Crear en Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "VERSION_ID_PLACEHOLDER",
+  "meta": {
+    "instanceId": "9598d86f4fec5d86581d704e57de784610b047bdff7f1a4692fc2822a9678fa1"
+  },
+  "id": "WORKFLOW_ID_PLACEHOLDER",
+  "tags": []
+}

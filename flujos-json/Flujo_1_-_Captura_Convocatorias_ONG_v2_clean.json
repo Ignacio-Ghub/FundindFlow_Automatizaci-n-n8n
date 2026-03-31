@@ -1,0 +1,689 @@
+{
+  "name": "Flujo 1 - Captura Convocatorias ONG",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 12
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger (cada 12h)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1936,
+        864
+      ],
+      "id": "2ab7a5dc-90ef-430a-a9ed-288d4285486b"
+    },
+    {
+      "parameters": {
+        "url": "https://www2.fundsforngos.org/feed/",
+        "options": {}
+      },
+      "name": "RSS: FundsForNGOs",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        -1680,
+        704
+      ],
+      "id": "37caa2f8-be02-438c-b8f4-e99ec0fd9d4a",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "https://www.terravivagrants.org/feed/",
+        "options": {}
+      },
+      "name": "RSS: TerraViva Grants",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        -1680,
+        864
+      ],
+      "id": "3451ef0c-cab7-4eef-8665-3d4990848043",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "https://www.grant4.eu/feed/",
+        "options": {}
+      },
+      "name": "RSS: Grant4EU",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        -1680,
+        1024
+      ],
+      "id": "4daa930d-455e-461f-879c-b3a11d227e89",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "name": "Merge: Todas las fuentes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -1392,
+        864
+      ],
+      "id": "dc0d7e77-e109-4e7e-b71e-4f84f206a403"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst normalized = [];\n\nconst SOURCE_MAP = {\n  'fundsforngos.org': 'FundsForNGOs',\n  'terravivagrants.org': 'TerraViva Grants',\n  'grant4.eu': 'Grant4EU'\n};\n\nfunction detectSource(url) {\n  for (const [domain, name] of Object.entries(SOURCE_MAP)) {\n    if ((url || '').includes(domain)) return name;\n  }\n  return 'Fuente RSS';\n}\n\nfor (const item of items) {\n  const d = item.json;\n  if (!d || d.error) continue;\n\n  const url = d.link || d.url || d.guid || '';\n  const title = (d.title || '').trim();\n  if (!title || !url) continue;\n\n  // Snippet del RSS como fallback si el scraping falla\n  const snippet = (d.contentSnippet || d.content || d.description || '')\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .substring(0, 500);\n\n  const pubDate = d.pubDate || d.isoDate || null;\n  const source_name = detectSource(url);\n  const prefijo = source_name.substring(0, 3).toUpperCase();\n  const random_str = Math.random().toString(36).substring(2, 8).toUpperCase();\n  const id_corto = prefijo + '-' + random_str;\n\n  normalized.push({ json: {\n    id_corto,\n    clave_deduplicacion: url,\n    source_name,\n    title_raw: title,\n    snippet_rss: snippet,\n    url,\n    pub_date: pubDate\n  }});\n}\n\nreturn normalized;"
+      },
+      "name": "Code: Normalización",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1136,
+        864
+      ],
+      "id": "b74ffc86-4884-49d1-becf-a32b49d9c81e"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst staticData = $getWorkflowStaticData('global');\n\n// Reset forzado — quitar esta línea después de ejecutar una vez\nstaticData.seenUrls = {};\n\n// Limpiar entradas mayores de 90 días\nconst now = new Date();\nfor (const [key, date] of Object.entries(staticData.seenUrls)) {\n  if ((now - new Date(date)) / (1000 * 60 * 60 * 24) > 90) {\n    delete staticData.seenUrls[key];\n  }\n}\n\nconst finalItems = [];\nfor (const item of items) {\n  const d = item.json;\n  const key = d.clave_deduplicacion;\n  if (!key || staticData.seenUrls[key]) {\n    d.es_nuevo = false;\n  } else {\n    staticData.seenUrls[key] = new Date().toISOString();\n    d.es_nuevo = true;\n  }\n  finalItems.push({ json: d });\n}\nreturn finalItems;"
+      },
+      "name": "Code: Deduplicación",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        864
+      ],
+      "id": "6f15c0f7-d7f7-4e97-89dc-922ecc418b05"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.es_nuevo }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "IF: ¿Es nuevo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -624,
+        864
+      ],
+      "id": "8a88ac65-c5c1-4aa6-be7d-91e4bad8073b"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (compatible; FundingFlowBot/1.0)"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {}
+          },
+          "timeout": 10000
+        }
+      },
+      "name": "HTTP: Scraping artículo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -368,
+        736
+      ],
+      "id": "d16396d9-37ff-444d-8055-c534a1e47142",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\n\n// Los datos originales están en el nodo IF, no en el HTTP\n// porque el HTTP sobreescribe el item con el HTML\nconst original = $('IF: ¿Es nuevo?').first().json;\n\nconst id_corto = original.id_corto || '';\nconst title_raw = original.title_raw || '';\nconst source_name = original.source_name || '';\nconst url = original.url || '';\nconst pub_date = original.pub_date || '';\nconst clave_deduplicacion = original.clave_deduplicacion || '';\nconst snippet_rss = original.snippet_rss || '';\n\nlet contenido_final = snippet_rss;\n\n// Buscar HTML en el item actual (viene del HTTP Request)\nlet htmlRaw = '';\nif (typeof item.json.data === 'string') htmlRaw = item.json.data;\nelse if (typeof item.json.body === 'string') htmlRaw = item.json.body;\nelse if (item.json.data?.body && typeof item.json.data.body === 'string') htmlRaw = item.json.data.body;\n\nif (htmlRaw.length > 100) {\n  const articleMatch =\n    htmlRaw.match(/<article[^>]*>([\\s\\S]*?)<\\/article>/i) ||\n    htmlRaw.match(/<main[^>]*>([\\s\\S]*?)<\\/main>/i) ||\n    htmlRaw.match(/class=\"[^\"]*(?:entry|post|content)[^\"]*\"[^>]*>([\\s\\S]*?)<\\/div>/i);\n\n  let texto = articleMatch ? articleMatch[1] : htmlRaw;\n\n  texto = texto\n    .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n    .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n    .replace(/<[^>]+>/g, ' ')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&quot;/g, '\"')\n    .replace(/\\s+/g, ' ')\n    .trim();\n\n  if (texto.length > contenido_final.length) {\n    contenido_final = texto.substring(0, 3000);\n  }\n}\n\nif (!contenido_final || contenido_final.length < 50) {\n  contenido_final = snippet_rss || 'Sin contenido disponible';\n}\n\nreturn [{ json: {\n  id_corto,\n  clave_deduplicacion,\n  source_name,\n  title_raw,\n  snippet_rss,\n  url,\n  pub_date,\n  Contenido_Raw: contenido_final\n}}];"
+      },
+      "name": "Code: Extraer texto artículo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        736
+      ],
+      "id": "325d5953-e5f7-45b0-a238-1f7ce815263f"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Convocatorias"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID": "={{ $json.id_corto }}",
+            "Nombre": "={{ $json.title_raw }}",
+            "URL": "={{ $json.url }}",
+            "Contenido_Raw": "={{ $json.Contenido_Raw }}",
+            "Estado": "Pendiente_IA",
+            "Procesado_IA": "FALSO",
+            "Donante": "={{ $json.source_name }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Nombre",
+              "displayName": "Nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "URL",
+              "displayName": "URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Contenido_Raw",
+              "displayName": "Contenido_Raw",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Estado",
+              "displayName": "Estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Donante",
+              "displayName": "Donante",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Fecha_Limite",
+              "displayName": "Fecha_Limite",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Monto",
+              "displayName": "Monto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Procesado_IA",
+              "displayName": "Procesado_IA",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "name": "Sheets: Crear registro",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        144,
+        736
+      ],
+      "id": "5ea74653-c87b-4eac-a2df-7a3b0f0ec05b",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Ejecuciones",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "Flujo 1 - Captura",
+            "Evento": "Convocatoria registrada",
+            "Detalle": "={{ $json.title_raw + ' | ' + $json.source_name + ' | Contenido: ' + $json.Contenido_Raw.length + ' chars' }}",
+            "Timestamp": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Detalle",
+              "displayName": "Detalle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "name": "Sheets: Log Exito",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        400,
+        736
+      ],
+      "id": "81c8043a-c322-4d9c-920c-021d02bdc2f2",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Duplicados",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "Flujo 1",
+            "Evento": "Duplicado descartado",
+            "Detalle": "={{ $json.title_raw }}",
+            "Timestamp": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "name": "Sheets: Log Duplicado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -368,
+        992
+      ],
+      "id": "b6ce6c38-862e-4d4f-8809-53c13a07b8ca",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1936,
+        1248
+      ],
+      "id": "1036a883-4c21-41fc-95f4-02ae40a33026"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  workflow_name: $workflow.name,\n  node_name: $json.execution?.error?.node || 'Desconocido',\n  error_message: $json.execution?.error?.message || 'Sin mensaje',\n  timestamp: new Date().toISOString()\n}}];"
+      },
+      "name": "Code: Formatear error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1680,
+        1248
+      ],
+      "id": "4617a8dd-5d84-4b5c-9d0d-5cd69f5fb6ad"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Errores",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "={{ $json.workflow_name }}",
+            "Evento": "={{ $json.node_name }}",
+            "Detalle": "={{ $json.error_message }}",
+            "Timestamp": "={{ $json.timestamp }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Detalle",
+              "displayName": "Detalle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "name": "Sheets: Log Error",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -1424,
+        1248
+      ],
+      "id": "af25f1b3-0de7-414b-b095-2a2a8bf00d10",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger (cada 12h)": {
+      "main": [
+        [
+          {
+            "node": "RSS: FundsForNGOs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS: TerraViva Grants",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "RSS: Grant4EU",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS: FundsForNGOs": {
+      "main": [
+        [
+          {
+            "node": "Merge: Todas las fuentes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS: TerraViva Grants": {
+      "main": [
+        [
+          {
+            "node": "Merge: Todas las fuentes",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "RSS: Grant4EU": {
+      "main": [
+        [
+          {
+            "node": "Merge: Todas las fuentes",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge: Todas las fuentes": {
+      "main": [
+        [
+          {
+            "node": "Code: Normalización",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Normalización": {
+      "main": [
+        [
+          {
+            "node": "Code: Deduplicación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Deduplicación": {
+      "main": [
+        [
+          {
+            "node": "IF: ¿Es nuevo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: ¿Es nuevo?": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Scraping artículo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sheets: Log Duplicado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Scraping artículo": {
+      "main": [
+        [
+          {
+            "node": "Code: Extraer texto artículo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Extraer texto artículo": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Crear registro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Crear registro": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Log Exito",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code: Formatear error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Formatear error": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Log Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "VERSION_ID_PLACEHOLDER",
+  "meta": {
+    "instanceId": "9598d86f4fec5d86581d704e57de784610b047bdff7f1a4692fc2822a9678fa1"
+  },
+  "id": "WORKFLOW_ID_PLACEHOLDER",
+  "tags": []
+}

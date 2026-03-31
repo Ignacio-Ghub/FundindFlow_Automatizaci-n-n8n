@@ -1,0 +1,525 @@
+{
+  "name": "Flujo 5 - Reporte Semanal (v2)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "b3d71039-d7e7-43af-9a20-e19ce8607d20",
+      "name": "Trigger: Lunes 8AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -560,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": 0,
+          "mode": "list",
+          "cachedResultName": "Convocatorias",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "de7d2fea-a8f9-4036-9273-53949bf47ed4",
+      "name": "Sheets: Leer Convocatorias",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -304,
+        32
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": 1557804530,
+          "mode": "list",
+          "cachedResultName": "Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1557804530"
+        },
+        "options": {}
+      },
+      "id": "1af4b712-c6fb-47a7-bed5-3c3dca68ac19",
+      "name": "Sheets: Leer Pipeline",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -304,
+        240
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "7a10566f-57b8-47d7-aa29-802210948a1a",
+      "name": "Merge: Esperar ambos",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -48,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const convocatoriasRaw = $('Sheets: Leer Convocatorias').all();\nconst pipelineRaw = $('Sheets: Leer Pipeline').all();\n\nconst hoy = new Date();\nhoy.setHours(0,0,0,0);\nconst hace7Dias = new Date(hoy.getTime() - 7 * 24 * 60 * 60 * 1000);\n\nfunction parseFecha(fecha) {\n  if (!fecha) return null;\n  try {\n    if (fecha.includes('/')) {\n      const parts = fecha.split('/');\n      return new Date(parts[2], parts[1]-1, parts[0]);\n    }\n    return new Date(fecha);\n  } catch(e) { return null; }\n}\n\nconst nuevas = convocatoriasRaw.filter(item => {\n  const fechaCaptura = parseFecha(item.json.Fecha_Captura || item.json.fecha_captura);\n  if (!fechaCaptura || isNaN(fechaCaptura.getTime())) return false;\n  return fechaCaptura >= hace7Dias;\n});\n\nconst ESTADOS_EXCLUIDOS = ['descartada', 'rechazada', 'archivada'];\nconst pipelineActivo = pipelineRaw.filter(item => {\n  const estado = (item.json.Estado || '').toLowerCase();\n  return !ESTADOS_EXCLUIDOS.includes(estado);\n});\n\nconst estados = {};\nfor (const item of pipelineActivo) {\n  const estado = item.json.Estado || 'sin_estado';\n  estados[estado] = (estados[estado] || 0) + 1;\n}\n\nconst urgentes = [];\nfor (const item of pipelineActivo) {\n  const fechaLimite = parseFecha(item.json.Fecha_Limite);\n  if (!fechaLimite || isNaN(fechaLimite.getTime())) continue;\n  const diff = Math.ceil((fechaLimite - hoy) / (1000 * 60 * 60 * 24));\n  if (diff >= 0 && diff <= 14) {\n    urgentes.push({\n      nombre: item.json.Nombre || item.json.Titulo || 'Sin nombre',\n      donante: item.json.Donante || 'Sin donante',\n      fecha_limite: item.json.Fecha_Limite,\n      dias_restantes: diff,\n      responsable: item.json.Responsable || 'Sin asignar',\n      estado: item.json.Estado || 'sin estado',\n      monto: item.json.Monto_Solicitado || item.json.Monto || '',\n      url: item.json.URL || item.json.Convocatoria_URL || '',\n      urgencia: diff <= 3 ? '🔴' : diff <= 7 ? '🟡' : '🟢'\n    });\n  }\n}\nurgentes.sort((a, b) => a.dias_restantes - b.dias_restantes);\n\nlet montoTotal = 0;\nfor (const item of pipelineActivo) {\n  const montoStr = (item.json.Monto_Solicitado || item.json.Monto || '0').toString();\n  const monto = parseFloat(montoStr.replace(/[^0-9.]/g, ''));\n  if (!isNaN(monto)) montoTotal += monto;\n}\n\nconst donantes = {};\nfor (const item of pipelineActivo) {\n  const donante = item.json.Donante || 'Desconocido';\n  donantes[donante] = (donantes[donante] || 0) + 1;\n}\nconst topDonantes = Object.entries(donantes)\n  .sort((a, b) => b[1] - a[1])\n  .slice(0, 5)\n  .map(([nombre, count]) => ({ nombre, count }));\n\nconst nuevasLista = nuevas.slice(0, 10).map(n => ({\n  nombre: n.json.Nombre || n.json.Titulo || 'Sin nombre',\n  donante: n.json.Donante || 'Sin donante',\n  monto: n.json.Monto || n.json.Monto_Disponible || 'N/D',\n  fecha_limite: n.json.Fecha_Limite || 'N/D',\n  url: n.json.URL || n.json.Convocatoria_URL || ''\n}));\n\nconst fecha_inicio = hace7Dias.toISOString().split('T')[0];\nconst fecha_fin = hoy.toISOString().split('T')[0];\n\nconst resumenParaIA = {\n  periodo: fecha_inicio + ' al ' + fecha_fin,\n  total_nuevas: nuevas.length,\n  total_activas: pipelineActivo.length,\n  total_urgentes: urgentes.length,\n  propuestas_criticas: urgentes.filter(u => u.dias_restantes <= 7).length,\n  monto_pipeline_usd: montoTotal,\n  distribucion_estados: estados,\n  top_donantes: topDonantes,\n  proximas_vencer: urgentes.slice(0, 5).map(u => ({\n    nombre: u.nombre,\n    donante: u.donante,\n    dias: u.dias_restantes,\n    monto: u.monto,\n    responsable: u.responsable\n  }))\n};\n\nreturn [{\n  json: {\n    metricas: {\n      total_nuevas: nuevas.length,\n      total_activas: pipelineActivo.length,\n      total_urgentes: urgentes.length,\n      monto_pipeline: montoTotal.toLocaleString('es-ES'),\n      estados,\n      top_donantes: topDonantes,\n      proximas_vencer: urgentes.slice(0, 10)\n    },\n    nuevas_lista: nuevasLista,\n    resumen_para_ia: JSON.stringify(resumenParaIA),\n    fecha_inicio,\n    fecha_fin\n  }\n}];"
+      },
+      "id": "ab177ae4-3c06-4ff9-85ec-5fc4a8cfe31c",
+      "name": "Code: Calcular Métricas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const m = $('Code: Calcular Métricas').first().json;\nconst openaiOutput = $input.first().json;\nlet resumenIA = 'Resumen no disponible.';\n\nif (openaiOutput.output && openaiOutput.output[0] && openaiOutput.output[0].content && openaiOutput.output[0].content[0] && openaiOutput.output[0].content[0].text) {\n  resumenIA = openaiOutput.output[0].content[0].text;\n}\n\nlet tablaNuevas = '';\nfor (const n of m.nuevas_lista) {\n  tablaNuevas += '<tr><td>' + n.nombre + '</td><td>' + n.donante + '</td><td>' + n.monto + '</td><td>' + n.fecha_limite + '</td></tr>';\n}\nif (!tablaNuevas) {\n  tablaNuevas = '<tr><td colspan=\"4\" style=\"text-align:center;color:#666;\">No hay nuevas convocatorias esta semana.</td></tr>';\n}\n\nlet seccionUrgentes = '';\nfor (const u of m.metricas.proximas_vencer.slice(0, 5)) {\n  const color = u.dias_restantes <= 3 ? '#dc3545' : u.dias_restantes <= 7 ? '#ffc107' : '#28a745';\n  seccionUrgentes += '<div style=\"background:#fff3cd;border-left:4px solid ' + color + ';padding:10px;margin:8px 0;border-radius:4px;\">';\n  seccionUrgentes += '<strong>' + u.urgencia + ' ' + u.nombre + '</strong><br>';\n  seccionUrgentes += '🏛️ ' + u.donante + ' | 📅 ' + u.dias_restantes + ' días (' + u.fecha_limite + ') | 👤 ' + u.responsable + '</div>';\n}\nif (!seccionUrgentes) {\n  seccionUrgentes = '<p style=\"color:#28a745;\">✅ No hay propuestas con fecha límite en los próximos 14 días.</p>';\n}\n\nlet barraEstados = '';\nconst colores = { 'en_análisis': '#17a2b8', 'en_elaboración': '#ffc107', 'concept_note': '#6f42c1', 'propuesta_completa': '#20c997', 'enviada': '#007bff', 'en_negociación': '#fd7e14', 'aprobada': '#28a745' };\nfor (const [estado, count] of Object.entries(m.metricas.estados)) {\n  const color = colores[estado] || '#6c757d';\n  barraEstados += '<div style=\"display:inline-block;text-align:center;margin:5px 10px;\"><div style=\"background:' + color + ';color:white;border-radius:50%;width:40px;height:40px;line-height:40px;margin:0 auto;font-weight:bold;\">' + count + '</div><div style=\"font-size:11px;margin-top:4px;\">' + estado.replace(/_/g, ' ') + '</div></div>';\n}\n\nlet topDonantesHtml = '';\nfor (const d of m.metricas.top_donantes) {\n  topDonantesHtml += '<li>' + d.nombre + ': <strong>' + d.count + '</strong> propuestas</li>';\n}\n\nconst html = '<!DOCTYPE html><html><head><style>body{font-family:Segoe UI,Arial,sans-serif;color:#333;max-width:650px;margin:0 auto}.header{background:linear-gradient(135deg,#1a5276,#2e86c1);color:white;padding:24px;border-radius:8px 8px 0 0}.header h1{margin:0;font-size:22px}.header p{margin:4px 0 0;opacity:0.85;font-size:14px}.content{padding:20px;background:#f8f9fa}.card{background:white;border-radius:8px;padding:16px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.1)}.card h2{margin-top:0;color:#1a5276;font-size:16px;border-bottom:2px solid #2e86c1;padding-bottom:8px}.resumen-ia{text-align:justify;line-height:1.6}.metricas{display:flex;flex-wrap:wrap;gap:10px}.metrica{flex:1;min-width:120px;background:#e3f2fd;border-radius:8px;padding:12px;text-align:center}.metrica .num{font-size:28px;font-weight:bold;color:#1a5276}.metrica .label{font-size:12px;color:#666}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#1a5276;color:white;padding:8px 10px;text-align:left}td{padding:8px 10px;border-bottom:1px solid #eee}.footer{padding:16px;text-align:center;font-size:11px;color:#999}</style></head><body><div class=\"header\"><h1>📊 FundingFlow - Reporte Semanal</h1><p>Semana del ' + m.fecha_inicio + ' al ' + m.fecha_fin + '</p></div><div class=\"content\"><div class=\"card\"><h2>📝 Resumen Ejecutivo</h2><div class=\"resumen-ia\">' + resumenIA + '</div></div><div class=\"card\"><h2>📈 Métricas de la Semana</h2><div class=\"metricas\"><div class=\"metrica\"><div class=\"num\">' + m.metricas.total_nuevas + '</div><div class=\"label\">Nuevas</div></div><div class=\"metrica\"><div class=\"num\">' + m.metricas.total_activas + '</div><div class=\"label\">En Pipeline</div></div><div class=\"metrica\"><div class=\"num\">' + m.metricas.total_urgentes + '</div><div class=\"label\">Urgentes ≤14d</div></div><div class=\"metrica\"><div class=\"num\">' + m.metricas.monto_pipeline + ' €</div><div class=\"label\">Monto Total</div></div></div></div><div class=\"card\"><h2>📊 Pipeline por Estado</h2><div style=\"text-align:center;\">' + barraEstados + '</div></div><div class=\"card\"><h2>⚠️ Fechas Límite Próximas</h2>' + seccionUrgentes + '</div><div class=\"card\"><h2>🆕 Nuevas Convocatorias</h2><table><tr><th>Convocatoria</th><th>Donante</th><th>Monto</th><th>Fecha Límite</th></tr>' + tablaNuevas + '</table></div><div class=\"card\"><h2>🏛️ Top Donantes en Pipeline</h2><ul>' + (topDonantesHtml || '<li>Sin datos</li>') + '</ul></div></div><div class=\"footer\">Generado automáticamente por FundingFlow | ' + m.fecha_fin + '</div></body></html>';\n\nreturn [{ json: { html_reporte: html, resumen_ia: resumenIA, ...m } }];"
+      },
+      "id": "cbdbdeea-e47c-4143-adec-354792ce8775",
+      "name": "Code: Construir HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "YOUR_SENDTO",
+        "subject": "={{ '📊 FundingFlow - Reporte Semanal (' + $json.fecha_inicio + ' al ' + $json.fecha_fin + ')' }}",
+        "message": "={{ $json.html_reporte }}",
+        "options": {}
+      },
+      "id": "71e3f962-e96f-4276-989a-56d6e8441bde",
+      "name": "Gmail: Enviar Reporte",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        976,
+        32
+      ],
+      "webhookId": "b577bde5-d73c-4af5-9ab6-f1eec2cb5394",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CREDENTIAL_ID",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_CHATID",
+        "text": "={{ '📊 *FundingFlow - Reporte Semanal*\\n' + $json.fecha_inicio + ' al ' + $json.fecha_fin + '\\n\\n' + $json.resumen_ia + '\\n\\n📈 *Métricas:*\\n• Nuevas: ' + $json.metricas.total_nuevas + '\\n• En pipeline: ' + $json.metricas.total_activas + '\\n• Urgentes (≤14d): ' + $json.metricas.total_urgentes + '\\n• Monto total: ' + $json.metricas.monto_pipeline + ' €\\n\\n📬 Reporte completo enviado por email.' }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "973dae61-bb08-4c59-bd78-bd87c15f61cd",
+      "name": "Telegram: Notificar",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        976,
+        240
+      ],
+      "webhookId": "5ee8e167-dbef-4ce4-bd83-97c76c33af1b",
+      "credentials": {
+        "telegramApi": {
+          "id": "TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot API"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": 1681558276,
+          "mode": "list",
+          "cachedResultName": "Log_Ejecuciones",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1681558276"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "Flujo 5 - Reporte Semanal",
+            "Evento": "reporte_enviado",
+            "Detalle": "={{ 'Nuevas: ' + $json.metricas.total_nuevas + ' | Pipeline: ' + $json.metricas.total_activas + ' | Urgentes: ' + $json.metricas.total_urgentes }}",
+            "Timestamp": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Detalle",
+              "displayName": "Detalle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "bbf4d167-76da-4bc4-a94c-475f52f21ab3",
+      "name": "Log: Ejecución",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1232,
+        144
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "05326960-7262-4f87-b7c8-d34ae83cc540",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const errorData = $input.first().json;\nreturn [{ json: {\n  workflow_name: $workflow.name,\n  node_name: errorData.execution?.error?.node || 'Desconocido',\n  error_message: errorData.execution?.error?.message || JSON.stringify(errorData).substring(0, 200),\n  timestamp: new Date().toISOString()\n}}];"
+      },
+      "id": "04412488-d50b-4581-8437-29061de1d290",
+      "name": "Code: Formatear Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -304,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": 1446118776,
+          "mode": "list",
+          "cachedResultName": "Log_Errores",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1446118776"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "={{ $json.workflow_name }}",
+            "Evento": "={{ $json.node_name }}",
+            "Detalle": "={{ $json.error_message }}",
+            "Timestamp": "={{ $json.timestamp }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Detalle",
+              "displayName": "Detalle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "851a6b89-cf3c-40b7-9d0d-563589a7444f",
+      "name": "Log: Error",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        16,
+        400
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=\"Eres el Director de Captación de Fondos de una ONG de cooperación internacional. Tu rol es analizar el estado del pipeline de financiamiento y proporcionar insights estratégicos accionables.\\n\\nGenera un RESUMEN EJECUTIVO siguiendo esta estructura:\\n\\n1. **Situación actual** (1 frase): Estado general del pipeline con cifras clave.\\n2. **Oportunidades críticas** (1-2 frases): Propuestas urgentes que requieren acción inmediata (≤7 días). Si no hay, menciona las próximas a vencer.\\n3. **Análisis de tendencias** (1 frase): Observación sobre donantes predominantes o distribución de estados.\\n4. **Recomendación estratégica** (1 frase): Acción concreta y priorizada para maximizar éxito.\\n\\nReglas:\\n- Máximo 5 frases totales\\n- Tono ejecutivo, directo y orientado a la acción\\n- Usa cifras concretas del reporte\\n- Si hay propuestas con ≤3 días, máxima urgencia\\n- Redacta en español profesional\" {{ $json.resumen_para_ia }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "maxTokens": "YOUR_MAXTOKENS",
+          "temperature": 0.3
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        400,
+        144
+      ],
+      "id": "e270c182-a472-4eb0-aafc-c2d89793d5e0",
+      "name": "OpenAI: Resumen IA",
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI API"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Trigger: Lunes 8AM": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Leer Convocatorias",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Sheets: Leer Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Leer Convocatorias": {
+      "main": [
+        [
+          {
+            "node": "Merge: Esperar ambos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Leer Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Merge: Esperar ambos",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge: Esperar ambos": {
+      "main": [
+        [
+          {
+            "node": "Code: Calcular Métricas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Construir HTML": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Enviar Reporte",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram: Notificar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Enviar Reporte": {
+      "main": [
+        [
+          {
+            "node": "Log: Ejecución",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: Notificar": {
+      "main": [
+        [
+          {
+            "node": "Log: Ejecución",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code: Formatear Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Formatear Error": {
+      "main": [
+        [
+          {
+            "node": "Log: Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Calcular Métricas": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Resumen IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Resumen IA": {
+      "main": [
+        [
+          {
+            "node": "Code: Construir HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "VERSION_ID_PLACEHOLDER",
+  "meta": {
+    "instanceId": "9598d86f4fec5d86581d704e57de784610b047bdff7f1a4692fc2822a9678fa1"
+  },
+  "id": "WORKFLOW_ID_PLACEHOLDER",
+  "tags": []
+}

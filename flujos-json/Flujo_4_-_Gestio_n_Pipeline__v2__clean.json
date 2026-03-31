@@ -1,0 +1,1226 @@
+{
+  "name": "Flujo 4 - Gestión Pipeline (v2)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pipeline-update",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "6d42174c-8efb-47f1-a1e7-05b5cf932cd7",
+      "name": "Webhook: Pipeline",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -2000,
+        288
+      ],
+      "webhookId": "a8408566-8d7f-4d03-a9a7-55029a627352",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "HTTP_HEADER_AUTH_ID",
+          "name": "HTTP Header Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst body = raw.body || raw.data || raw;\n\nconst required = ['action', 'convocatoria_id'];\nfor (const field of required) {\n  if (!body[field]) {\n    return [{ json: { valid: false, error: `Campo obligatorio ausente: ${field}`, status: 400 } }];\n  }\n}\n\nconst ESTADOS_VALIDOS = ['en_análisis','en_elaboración','concept_note','propuesta_completa','enviada','en_negociación','aprobada','rechazada','archivada'];\nconst ACCIONES_VALIDAS = ['cambio_estado', 'asignar', 'comentario'];\n\nif (!ACCIONES_VALIDAS.includes(body.action)) {\n  return [{ json: { valid: false, error: `Acción no válida: ${body.action}`, status: 400 } }];\n}\n\nif (body.action === 'cambio_estado' && body.nuevo_estado && !ESTADOS_VALIDOS.includes(body.nuevo_estado)) {\n  return [{ json: { valid: false, error: `Estado no válido: ${body.nuevo_estado}`, status: 400 } }];\n}\n\nreturn [{ json: {\n  valid: true,\n  action: body.action,\n  convocatoria_id: body.convocatoria_id,\n  nuevo_estado: body.nuevo_estado || null,\n  responsable: body.responsable || null,\n  comentario: body.comentario || null,\n  usuario: body.usuario || 'sistema',\n  timestamp: new Date().toISOString()\n}}];"
+      },
+      "id": "c3a0c1fd-3f55-4e87-9da5-02854ae4e89a",
+      "name": "Code: Validar payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1744,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "af0bf5d4-d09b-403e-a5ad-14daa2c61678",
+      "name": "IF: ¿Payload válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1472,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $json.error }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "f7eb6424-9559-4be7-8617-52d3f448242f",
+      "name": "Response: Error 400",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -1472,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": 1557804530,
+          "mode": "list",
+          "cachedResultName": "Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1557804530"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "ID_Convocatoria",
+              "lookupValue": "={{ $json.convocatoria_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b98634a9-318a-4933-8ce8-a3c22790a868",
+      "name": "Sheets: Buscar registro",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -1216,
+        288
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $('Code: Validar payload').first().json;\nconst registros = $input.all();\nif (registros.length === 0 || !registros[0].json.ID_Convocatoria) {\n  return [{ json: { existe: false, error: 'No existe registro con ID: ' + payload.convocatoria_id, ...payload }}];\n}\nconst reg = registros[0].json;\nreturn [{ json: {\n  existe: true,\n  action: payload.action,\n  convocatoria_id: payload.convocatoria_id,\n  nuevo_estado: payload.nuevo_estado || '',\n  responsable: payload.responsable || '',\n  comentario: payload.comentario || '',\n  usuario: payload.usuario || 'sistema',\n  timestamp: payload.timestamp,\n  nombre_conv: reg.Nombre || reg.Titulo || reg.ID_Convocatoria || 'Sin nombre',\n  estado_anterior: reg.Estado || 'sin estado',\n  donante_conv: reg.Donante || 'sin donante',\n  fecha_limite_conv: reg.Fecha_Limite || 'sin fecha',\n  url_conv: reg.Convocatoria_URL || reg.URL || '',\n  responsable_actual: reg.Responsable || 'sin asignar',\n  notas_actuales: reg.Notas || ''\n}}];"
+      },
+      "id": "807a3f70-9944-4b71-9328-e5fc3ac80235",
+      "name": "Code: Combinar datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-existe",
+              "leftValue": "={{ $json.existe }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0051fefc-4a9f-4e29-9552-1b4d9d57091b",
+      "name": "IF: ¿Existe registro?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $json.error }) }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "id": "d24908eb-f3bd-495f-aaf9-2b104b8f8729",
+      "name": "Response: Error 404",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -704,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "cambio_estado",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "asignar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "comentario",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true
+            }
+          ]
+        },
+        "options": {
+          "allMatchingOutputs": false
+        }
+      },
+      "id": "03ffb179-724f-4bbc-b8e6-d334b9e070d2",
+      "name": "Switch: Router acción",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -448,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": 1557804530,
+          "mode": "list",
+          "cachedResultName": "Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1557804530"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID_Convocatoria": "={{ $json.convocatoria_id }}",
+            "Estado": "={{ $json.nuevo_estado }}"
+          },
+          "matchingColumns": [
+            "ID_Convocatoria"
+          ],
+          "schema": [
+            {
+              "id": "ID_Convocatoria",
+              "displayName": "ID_Convocatoria",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Estado",
+              "displayName": "Estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "fe30cc4d-5751-43e1-b310-af6bb1d39bbb",
+      "name": "Sheets: Update estado",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -128,
+        96
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recuperar datos ANTES del Sheets Update (que los pierde)\nconst datos = $('Code: Combinar datos').first().json;\nreturn [{ json: datos }];"
+      },
+      "id": "8f2e8c80-9c3b-4299-80b7-cbb2c58e33d7",
+      "name": "Code: Recuperar datos estado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_CHATID",
+        "text": "={{ '📋 <b>Pipeline actualizado</b>\\n\\n🆔 ' + $json.nombre_conv + '\\n🔄 ' + $json.estado_anterior + ' → <b>' + $json.nuevo_estado + '</b>\\n👤 Por: ' + $json.usuario + '\\n⏱️ ' + $json.timestamp }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "04d215d4-5601-4e55-b8aa-3f6595880803",
+      "name": "Telegram: Notificar cambio estado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        384,
+        96
+      ],
+      "webhookId": "1b0c7416-8421-4bb2-8a91-44382b751c95",
+      "credentials": {
+        "telegramApi": {
+          "id": "TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot API"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": 1557804530,
+          "mode": "list",
+          "cachedResultName": "Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1557804530"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID_Convocatoria": "={{ $json.convocatoria_id }}",
+            "Responsable": "={{ $json.responsable }}"
+          },
+          "matchingColumns": [
+            "ID_Convocatoria"
+          ],
+          "schema": [
+            {
+              "id": "ID_Convocatoria",
+              "displayName": "ID_Convocatoria",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Responsable",
+              "displayName": "Responsable",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "13a79ccf-9364-4fdc-ae4a-23c0e6076380",
+      "name": "Sheets: Update responsable",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -128,
+        288
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recuperar datos ANTES del Sheets Update (que los pierde)\nconst datos = $('Code: Combinar datos').first().json;\nreturn [{ json: datos }];"
+      },
+      "id": "71987145-ed19-4827-94cb-71a2d3b5fb8a",
+      "name": "Code: Recuperar datos asignar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "YOUR_SENDTO",
+        "subject": "={{ '👤 FundingFlow: ' + $json.nombre_conv + ' — Asignada a ' + $json.responsable }}",
+        "message": "={{ '<h2>👤 Asignación de responsable</h2><table border=\"1\" cellpadding=\"6\" style=\"border-collapse:collapse;width:100%\"><tr style=\"background:#f2f2f2\"><th>Campo</th><th>Valor</th></tr><tr><td>Convocatoria</td><td>' + $json.nombre_conv + '</td></tr><tr><td>Responsable</td><td><strong>' + $json.responsable + '</strong></td></tr><tr><td>Asignado por</td><td>' + $json.usuario + '</td></tr><tr><td>Donante</td><td>' + $json.donante_conv + '</td></tr><tr><td>Fecha límite</td><td>' + $json.fecha_limite_conv + '</td></tr></table>' + (($json.url_conv) ? '<br><a href=\"' + $json.url_conv + '\">Ver convocatoria</a>' : '') + '<br><small>FundingFlow · ' + new Date().toLocaleString('es-ES') + '</small>' }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "565204db-0d01-4bff-a623-914ce6994bad",
+      "name": "Gmail: Notificar asignación",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        384,
+        288
+      ],
+      "webhookId": "45515adf-7f16-471f-a179-73f71a940b9d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CREDENTIAL_ID",
+          "name": "Gmail OAuth2"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": 1557804530,
+          "mode": "list",
+          "cachedResultName": "Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1557804530"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ID_Convocatoria": "={{ $json.convocatoria_id }}",
+            "Notas": "={{ ($json.notas_actuales ? $json.notas_actuales + '\\n' : '') + '[' + new Date().toLocaleDateString('es-ES') + '] ' + $json.usuario + ': ' + $json.comentario }}"
+          },
+          "matchingColumns": [
+            "ID_Convocatoria"
+          ],
+          "schema": [
+            {
+              "id": "ID_Convocatoria",
+              "displayName": "ID_Convocatoria",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Notas",
+              "displayName": "Notas",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "5f0cb5d6-7d64-4713-9e8e-6595836ea5eb",
+      "name": "Sheets: Update notas",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -128,
+        480
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recuperar datos ANTES del Sheets Update (que los pierde)\nconst datos = $('Code: Combinar datos').first().json;\nreturn [{ json: datos }];"
+      },
+      "id": "e2bea3c8-ea8c-4f07-8433-1b83dbdd7ecf",
+      "name": "Code: Recuperar datos comentario",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://https://hooks.slack.com/services/REEMPLAZAR_POR_WEBHOOK_SEGURO,
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "={{ '💬 *Nuevo comentario en pipeline*\\n• *' + $json.nombre_conv + '*\\n👤 ' + $json.usuario + ': ' + $json.comentario + '\\n📅 Fecha límite: ' + $json.fecha_limite_conv + (($json.url_conv) ? ' | <' + $json.url_conv + '|Ver>' : '') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e96295b7-134e-4c4d-b61c-b3ee1d0eb1e4",
+      "name": "Slack: Notificar comentario",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        384,
+        480
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Tomar datos de cualquier rama que llegue\nconst item = $input.first().json;\nreturn [{ json: item }];"
+      },
+      "id": "0a2aea59-a03f-4ab3-8051-803611e74466",
+      "name": "Code: Merge ramas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": 1681558276,
+          "mode": "list",
+          "cachedResultName": "Log_Ejecuciones",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1681558276"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "Flujo 4 - Pipeline",
+            "Evento": "={{ $json.action }}",
+            "Detalle": "={{ $json.nombre_conv + ' | ' + $json.usuario + (($json.nuevo_estado) ? ' → ' + $json.nuevo_estado : '') + (($json.responsable) ? ' asignado a ' + $json.responsable : '') + (($json.comentario) ? ': ' + $json.comentario.substring(0, 50) : '') }}",
+            "Timestamp": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Detalle",
+              "displayName": "Detalle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "7f53cd7f-4c58-49c7-a681-eefd9a174eb4",
+      "name": "Log: Acción pipeline",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        896,
+        288
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, message: 'Pipeline actualizado', action: $json.action, convocatoria_id: $json.convocatoria_id, nombre: $json.nombre_conv, timestamp: new Date().toISOString() }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "3bb2695e-75fd-4215-9d79-ab803512b4e1",
+      "name": "Response: 200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1152,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "f7404c90-d01d-4e4f-ab18-7968adbbc7ea",
+      "name": "Schedule: Recordatorios diarios",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1984,
+        784
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": 1557804530,
+          "mode": "list",
+          "cachedResultName": "Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1557804530"
+        },
+        "options": {}
+      },
+      "id": "406c9c31-31a4-4136-848a-c06cc78f4c14",
+      "name": "Sheets: Leer pipeline activo",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -1728,
+        784
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst hoy = new Date();\nhoy.setHours(0,0,0,0);\n\nconst ESTADOS_ACTIVOS = ['en_análisis','en_elaboración','concept_note','propuesta_completa'];\nconst recordatorios = [];\n\nfor (const item of items) {\n  const d = item.json;\n  if (!ESTADOS_ACTIVOS.includes(d.Estado)) continue;\n  if (!d.Fecha_Limite) continue;\n\n  let fechaLimite;\n  try {\n    if (d.Fecha_Limite.includes('/')) {\n      const parts = d.Fecha_Limite.split('/');\n      fechaLimite = new Date(parts[2], parts[1]-1, parts[0]);\n    } else {\n      fechaLimite = new Date(d.Fecha_Limite);\n    }\n    if (isNaN(fechaLimite.getTime())) continue;\n  } catch(e) { continue; }\n\n  fechaLimite.setHours(0,0,0,0);\n  const diasRestantes = Math.round((fechaLimite - hoy) / (1000*60*60*24));\n  if (diasRestantes < 0 || diasRestantes > 14) continue;\n\n  recordatorios.push({\n    id: d.ID_Convocatoria,\n    nombre: d.Nombre || d.Titulo || 'Sin nombre',\n    estado: d.Estado,\n    responsable: d.Responsable || 'Sin asignar',\n    fecha_limite: d.Fecha_Limite,\n    dias_restantes: diasRestantes,\n    donante: d.Donante || '',\n    monto: d.Monto_Solicitado || '',\n    url: d.Convocatoria_URL || d.URL || '',\n    urgencia: diasRestantes <= 3 ? '🔴' : diasRestantes <= 7 ? '🟡' : '🟢'\n  });\n}\n\nrecordatorios.sort((a, b) => a.dias_restantes - b.dias_restantes);\n\nif (recordatorios.length === 0) {\n  return [{ json: { hay_recordatorios: false } }];\n}\n\nreturn [{ json: { hay_recordatorios: true, recordatorios, total: recordatorios.length } }];"
+      },
+      "id": "46c148be-244b-42e4-827a-ab0dd6101339",
+      "name": "Code: Filtrar recordatorios",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1472,
+        784
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-recordatorios",
+              "leftValue": "={{ $json.hay_recordatorios }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c5fac199-5748-40b0-9840-49537847aee8",
+      "name": "IF: ¿Hay recordatorios?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        784
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nlet msg = `⏰ <b>FundingFlow — Recordatorios de pipeline</b>\\n`;\nmsg += `${d.total} propuesta(s) con fecha límite en los próximos 14 días\\n\\n`;\n\nfor (const r of d.recordatorios) {\n  msg += `${r.urgencia} <b>${r.nombre}</b>\\n`;\n  msg += `  📊 Estado: ${r.estado}\\n`;\n  msg += `  👤 Responsable: ${r.responsable}\\n`;\n  msg += `  📅 Fecha límite: ${r.fecha_limite} (${r.dias_restantes} días)\\n`;\n  if (r.donante) msg += `  🏛️ Donante: ${r.donante}\\n`;\n  if (r.monto) msg += `  💰 Monto: ${r.monto}\\n`;\n  if (r.url) msg += `  🔗 <a href=\"${r.url}\">Ver convocatoria</a>\\n`;\n  msg += `\\n`;\n}\n\nmsg += `—\\nFundingFlow · ${new Date().toLocaleString('es-ES')}`;\nreturn [{ json: { mensaje: msg, total: d.total } }];"
+      },
+      "id": "c2ff5e3e-048f-4671-88eb-13b1ea267794",
+      "name": "Code: Formatear recordatorio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        784
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_CHATID",
+        "text": "={{ $json.mensaje }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "d8630547-c3f7-40ea-af8e-bdd47b454409",
+      "name": "Telegram: Recordatorio",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -704,
+        784
+      ],
+      "webhookId": "db419dbb-a8b2-4ebc-9029-6b75e35a1aca",
+      "credentials": {
+        "telegramApi": {
+          "id": "TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot API"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {},
+      "id": "fd615b62-afe4-461b-bf50-0d6967662961",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1984,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const errorData = $input.first().json;\nreturn [{ json: {\n  workflow_name: $workflow.name,\n  node_name: errorData.execution?.error?.node || 'Desconocido',\n  error_message: errorData.execution?.error?.message || JSON.stringify(errorData).substring(0, 200),\n  timestamp: new Date().toISOString()\n}}];"
+      },
+      "id": "3fbabd46-1e23-4606-b623-925923c72571",
+      "name": "Code: Formatear error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1728,
+        1072
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": 1446118776,
+          "mode": "list",
+          "cachedResultName": "Log_Errores",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1446118776"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "={{ $json.workflow_name }}",
+            "Evento": "={{ $json.node_name }}",
+            "Detalle": "={{ $json.error_message }}",
+            "Timestamp": "={{ $json.timestamp }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Detalle",
+              "displayName": "Detalle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "c5024e20-4b9e-46fb-a5f9-98a89488bf9e",
+      "name": "Log: Error global",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -1472,
+        1072
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook: Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Code: Validar payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Validar payload": {
+      "main": [
+        [
+          {
+            "node": "IF: ¿Payload válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: ¿Payload válido?": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Buscar registro",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Response: Error 400",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Buscar registro": {
+      "main": [
+        [
+          {
+            "node": "Code: Combinar datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Combinar datos": {
+      "main": [
+        [
+          {
+            "node": "IF: ¿Existe registro?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: ¿Existe registro?": {
+      "main": [
+        [
+          {
+            "node": "Switch: Router acción",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Response: Error 404",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Router acción": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Update estado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sheets: Update responsable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sheets: Update notas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Update estado": {
+      "main": [
+        [
+          {
+            "node": "Code: Recuperar datos estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Recuperar datos estado": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Notificar cambio estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: Notificar cambio estado": {
+      "main": [
+        [
+          {
+            "node": "Code: Merge ramas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Update responsable": {
+      "main": [
+        [
+          {
+            "node": "Code: Recuperar datos asignar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Recuperar datos asignar": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Notificar asignación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Notificar asignación": {
+      "main": [
+        [
+          {
+            "node": "Code: Merge ramas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Update notas": {
+      "main": [
+        [
+          {
+            "node": "Code: Recuperar datos comentario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Recuperar datos comentario": {
+      "main": [
+        [
+          {
+            "node": "Slack: Notificar comentario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Notificar comentario": {
+      "main": [
+        [
+          {
+            "node": "Code: Merge ramas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Merge ramas": {
+      "main": [
+        [
+          {
+            "node": "Log: Acción pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log: Acción pipeline": {
+      "main": [
+        [
+          {
+            "node": "Response: 200 OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule: Recordatorios diarios": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Leer pipeline activo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Leer pipeline activo": {
+      "main": [
+        [
+          {
+            "node": "Code: Filtrar recordatorios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Filtrar recordatorios": {
+      "main": [
+        [
+          {
+            "node": "IF: ¿Hay recordatorios?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: ¿Hay recordatorios?": {
+      "main": [
+        [
+          {
+            "node": "Code: Formatear recordatorio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Formatear recordatorio": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Recordatorio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code: Formatear error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Formatear error": {
+      "main": [
+        [
+          {
+            "node": "Log: Error global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "VERSION_ID_PLACEHOLDER",
+  "meta": {
+    "instanceId": "9598d86f4fec5d86581d704e57de784610b047bdff7f1a4692fc2822a9678fa1"
+  },
+  "id": "WORKFLOW_ID_PLACEHOLDER",
+  "tags": []
+}

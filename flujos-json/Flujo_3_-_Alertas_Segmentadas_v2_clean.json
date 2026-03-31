@@ -1,0 +1,573 @@
+{
+  "name": "Flujo 3 - Alertas Segmentadas",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "name": "Schedule: Diario 9am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1808,
+        48
+      ],
+      "id": "56fade6c-6eb1-41bc-84d9-bf2243930e6e"
+    },
+    {
+      "parameters": {
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Convocatorias"
+        },
+        "options": {
+          "dataLocationOnSheet": {
+            "values": {
+              "rangeDefinition": "detectAutomatically",
+              "readRowsUntil": "firstEmptyRow"
+            }
+          }
+        }
+      },
+      "name": "Sheets: Leer convocatorias",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -1552,
+        48
+      ],
+      "id": "0f23225b-ad34-465b-a98d-271da9ba8d31",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst hoy = new Date();\nhoy.setHours(0, 0, 0, 0);\nconst urgentes = [];\nconst proximas = [];\n\nfor (const item of items) {\n  const d = item.json;\n\n  // Solo convocatorias procesadas por IA con fecha límite\n  if (d.Procesado_IA !== 'VERDADERO') continue;\n  if (!d.Fecha_Limite || d.Fecha_Limite === '') continue;\n  // Saltar las que ya están alertadas\n  if (d.Estado === 'alertada') continue;\n\n  // Parsear fecha límite\n  let fechaLimite;\n  try {\n    fechaLimite = new Date(d.Fecha_Limite);\n    if (isNaN(fechaLimite)) continue;\n  } catch(e) { continue; }\n\n  fechaLimite.setHours(0, 0, 0, 0);\n  const diasRestantes = Math.round((fechaLimite - hoy) / (1000 * 60 * 60 * 24));\n\n  // Descartar vencidas\n  if (diasRestantes < 0) continue;\n\n  const convocatoria = {\n    id: d.ID || '',\n    nombre: d.Nombre || 'Sin nombre',\n    donante: d.Donante || 'Desconocido',\n    fecha_limite: d.Fecha_Limite,\n    monto: d.Monto || 'No especificado',\n    url: d.URL || '',\n    dias_restantes: diasRestantes,\n    estado: d.Estado || ''\n  };\n\n  if (diasRestantes <= 15) {\n    convocatoria.urgencia = '🔴 URGENTE';\n    urgentes.push(convocatoria);\n  } else if (diasRestantes <= 30) {\n    convocatoria.urgencia = '🟡 PRÓXIMA';\n    proximas.push(convocatoria);\n  }\n}\n\n// Si no hay nada que alertar, salir\nif (urgentes.length === 0 && proximas.length === 0) {\n  return [{ json: { hay_alertas: false, urgentes: [], proximas: [], total: 0 } }];\n}\n\nreturn [{ json: {\n  hay_alertas: true,\n  urgentes,\n  proximas,\n  total: urgentes.length + proximas.length,\n  fecha_reporte: hoy.toISOString().split('T')[0]\n}}];"
+      },
+      "name": "Code: Filtrar urgentes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1296,
+        48
+      ],
+      "id": "5170c9cc-2858-4e04-ad66-51576e2ed7f7"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.hay_alertas }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "IF: ¿Hay alertas?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -1040,
+        48
+      ],
+      "id": "602116bf-26d3-482b-a1ab-f10bd821cd5b"
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\n\n// Construir mensaje Telegram (Markdown)\nlet msg = `*🔔 FundingFlow — Alertas del día ${d.fecha_reporte}*\\n`;\nmsg += `Total convocatorias con plazo próximo: *${d.total}*\\n\\n`;\n\nif (d.urgentes.length > 0) {\n  msg += `*🔴 URGENTES (menos de 15 días)*\\n`;\n  for (const c of d.urgentes) {\n   msg += `\\n• *${c.nombre}*\\n`;\nmsg += `  🏛️ Donante: ${c.donante || 'No especificado'}\\n`;\nmsg += `  💰 Monto: ${c.monto || 'No especificado'}\\n`;\nmsg += `  📅 Fecha límite: ${c.fecha_limite} (${c.dias_restantes} días)\\n`;\nmsg += `  🌍 Región: Global\\n`;\nmsg += `  📊 Estado: ${c.estado || 'en_análisis'}\\n`;\nif (c.url) msg += `  🔗 <a href=\"${c.url}\">Ver convocatoria</a>\\n`;\n  }\n}\n\nif (d.proximas.length > 0) {\n  msg += `\\n*🟡 PRÓXIMAS (15-30 días)*\\n`;\n  for (const c of d.proximas) {\n    msg += `\\n• *${c.nombre}*\\n`;\nmsg += `  🏛️ Donante: ${c.donante || 'No especificado'}\\n`;\nmsg += `  💰 Monto: ${c.monto || 'No especificado'}\\n`;\nmsg += `  📅 Fecha límite: ${c.fecha_limite} (${c.dias_restantes} días)\\n`;\nmsg += `  🌍 Región: Global\\n`;\nmsg += `  📊 Estado: ${c.estado || 'en_análisis'}\\n`;\nif (c.url) msg += `  🔗 [Ver convocatoria](${c.url})\\n`;\n  }\n}\n\nmsg += `\\n_FundingFlow · ${new Date().toLocaleString('es-ES')}_`;\n\n// Truncar a 4096 chars (límite Telegram)\nconst msgTruncado = msg.length > 4000 ? msg.substring(0, 4000) + '...\\n_(mensaje truncado)_' : msg;\n\n// Construir mensaje Slack (texto plano con bloques)\nlet slackText = `*🔔 FundingFlow — Alertas ${d.fecha_reporte}* | ${d.total} convocatorias próximas\\n\\n`;\n\nif (d.urgentes.length > 0) {\n  slackText += `*🔴 URGENTES (< 15 días)*\\n`;\n  for (const c of d.urgentes) {\n    slackText += `• *${c.nombre}*\\n`;\nslackText += `  🏛️ ${c.donante || 'No especificado'} | 💰 ${c.monto || 'No especificado'} | 📅 ${c.fecha_limite} (${c.dias_restantes} días) | 📊 ${c.estado || 'en_análisis'} | <${c.url}|Ver>\\n\\n`;\n  }\n}\nif (d.proximas.length > 0) {\n  slackText += `\\n*🟡 PRÓXIMAS (15-30 días)*\\n`;\n  for (const c of d.proximas) {\n    slackText += `• *${c.nombre}*\\n`;\nslackText += `  🏛️ ${c.donante || 'No especificado'} | 💰 ${c.monto || 'No especificado'} | 📅 ${c.fecha_limite} (${c.dias_restantes} días) | 📊 ${c.estado || 'en_análisis'} | <${c.url}|Ver>\\n\\n`;\n  }\n}\n\n// Construir cuerpo Gmail HTML\nlet html = `<h2>🔔 FundingFlow — Alertas del ${d.fecha_reporte}</h2>`;\nhtml += `<p><strong>${d.total} convocatorias con plazo próximo</strong></p>`;\n\nif (d.urgentes.length > 0) {\n  html += `<h3 style=\"color:#cc0000\">🔴 URGENTES — Menos de 15 días</h3><table border=\"1\" cellpadding=\"6\" style=\"border-collapse:collapse;width:100%\">`;\n  html += `<tr style=\"background:#f2f2f2\"><th>Nombre</th><th>🏛️ Donante</th><th>📅 Fecha límite</th><th>Días</th><th>💰 Monto</th><th>📊 Estado</th><th>🌍 Región</th><th>Enlace</th></tr>`;\n  for (const c of d.urgentes) {\n    html += `<tr><td>${c.nombre}</td><td>${c.donante || 'No especificado'}</td><td>${c.fecha_limite}</td><td style=\"color:#cc0000\"><strong>${c.dias_restantes}</strong></td><td>${c.monto || 'No especificado'}</td><td>${c.estado || 'en_análisis'}</td><td>Global</td><td><a href=\"${c.url}\" style=\"color:#0066cc\">Ver convocatoria</a></td></tr>`;\n  }\n  html += `</table>`;\n}\n\nif (d.proximas.length > 0) {\n  html += `<h3 style=\"color:#cc7700\">🟡 PRÓXIMAS — 15 a 30 días</h3><table border=\"1\" cellpadding=\"6\" style=\"border-collapse:collapse;width:100%\">`;\n  html += `<tr style=\"background:#f2f2f2\"><th>Nombre</th><th>🏛️ Donante</th><th>📅 Fecha límite</th><th>Días</th><th>💰 Monto</th><th>📊 Estado</th><th>🌍 Región</th><th>Enlace</th></tr>`;\n  for (const c of d.proximas) {\n    html += `<tr><td>${c.nombre}</td><td>${c.donante || 'No especificado'}</td><td>${c.fecha_limite}</td><td style=\"color:#cc0000\"><strong>${c.dias_restantes}</strong></td><td>${c.monto || 'No especificado'}</td><td>${c.estado || 'en_análisis'}</td><td>Global</td><td><a href=\"${c.url}\" style=\"color:#0066cc\">Ver convocatoria</a></td></tr>`;\n  }\n  html += `</table>`;\n}\n\nhtml += `<br><small>FundingFlow · ${new Date().toLocaleString('es-ES')}</small>`;\n\nreturn [{ json: {\n  telegram_msg: msgTruncado,\n  slack_text: slackText,\n  gmail_html: html,\n  asunto: `🔔 FundingFlow: ${d.urgentes.length} urgentes, ${d.proximas.length} próximas — ${d.fecha_reporte}`,\n  total: d.total\n}}];"
+      },
+      "name": "Code: Formatear mensajes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        48
+      ],
+      "id": "6aee31f3-4a63-419f-be1a-112842bc4004"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_CHATID",
+        "text": "={{ $json.telegram_msg }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "HTML"
+        }
+      },
+      "name": "Telegram: Enviar alerta",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -528,
+        -112
+      ],
+      "id": "4aa23c52-6c65-49ee-85d2-6f48293a700a",
+      "webhookId": "eff8d776-5214-4f1e-be9f-c5eef2ca229d",
+      "credentials": {
+        "telegramApi": {
+          "id": "TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram Bot API"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://https://hooks.slack.com/services/REEMPLAZAR_POR_WEBHOOK_SEGURO",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "={{ $json.slack_text }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Slack: Enviar alerta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -528,
+        48
+      ],
+      "id": "8af8c842-e091-44d2-93d7-ce2e61f5d21e",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "sendTo": "YOUR_SENDTO",
+        "subject": "={{ $json.asunto }}",
+        "message": "={{ $json.gmail_html }}",
+        "options": {}
+      },
+      "name": "Gmail: Enviar alerta",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -528,
+        208
+      ],
+      "id": "10c16e68-7892-4d02-9d6e-1c5c6b1953eb",
+      "webhookId": "2febef21-c91a-46a4-b692-e1eb0951e918",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "GMAIL_CREDENTIAL_ID",
+          "name": "Gmail OAuth2"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Ejecuciones",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "Flujo 3 - Alertas",
+            "Evento": "Alertas enviadas",
+            "Detalle": "={{ $('Code: Formatear mensajes').first().json.total + ' convocatorias notificadas por Telegram, Slack y Gmail' }}",
+            "Timestamp": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Detalle",
+              "displayName": "Detalle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "name": "Log: Alertas enviadas",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -272,
+        48
+      ],
+      "id": "7b2a292f-555f-41d0-8998-0f6b14b5e2ae",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Ejecuciones",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "Flujo 3 - Alertas",
+            "Evento": "Sin alertas hoy",
+            "Detalle": "No hay convocatorias con plazo menor a 30 días",
+            "Timestamp": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Detalle",
+              "displayName": "Detalle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "name": "Log: Sin alertas",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -784,
+        272
+      ],
+      "id": "bb7d7bbc-e59d-4fed-92e6-148e8f1d5dc7",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1808,
+        352
+      ],
+      "id": "ce132507-1d34-4eb8-89ba-fd088a3cb013"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  workflow_name: $workflow.name,\n  node_name: $json.execution?.error?.node || 'Desconocido',\n  error_message: $json.execution?.error?.message || 'Sin mensaje',\n  timestamp: new Date().toISOString()\n}}];"
+      },
+      "name": "Code: Formatear error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1552,
+        352
+      ],
+      "id": "5a0f6799-c242-42ed-9531-44f01e2c953b"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "YOUR_DOCUMENTID",
+        "sheetName": {
+          "__rl": true,
+          "value": "Log_Errores",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Workflow": "={{ $json.workflow_name }}",
+            "Evento": "={{ $json.node_name }}",
+            "Detalle": "={{ $json.error_message }}",
+            "Timestamp": "={{ $json.timestamp }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Workflow",
+              "displayName": "Workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Evento",
+              "displayName": "Evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Detalle",
+              "displayName": "Detalle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "name": "Log: Error global",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [
+        -1296,
+        352
+      ],
+      "id": "45da044b-99ad-4acd-ba8e-4147078b23ed",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule: Diario 9am": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Leer convocatorias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Leer convocatorias": {
+      "main": [
+        [
+          {
+            "node": "Code: Filtrar urgentes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Filtrar urgentes": {
+      "main": [
+        [
+          {
+            "node": "IF: ¿Hay alertas?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: ¿Hay alertas?": {
+      "main": [
+        [
+          {
+            "node": "Code: Formatear mensajes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log: Sin alertas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Formatear mensajes": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Enviar alerta",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Slack: Enviar alerta",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail: Enviar alerta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram: Enviar alerta": {
+      "main": [
+        [
+          {
+            "node": "Log: Alertas enviadas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Enviar alerta": {
+      "main": [
+        [
+          {
+            "node": "Log: Alertas enviadas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Enviar alerta": {
+      "main": [
+        [
+          {
+            "node": "Log: Alertas enviadas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code: Formatear error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Formatear error": {
+      "main": [
+        [
+          {
+            "node": "Log: Error global",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "VERSION_ID_PLACEHOLDER",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9598d86f4fec5d86581d704e57de784610b047bdff7f1a4692fc2822a9678fa1"
+  },
+  "id": "WORKFLOW_ID_PLACEHOLDER",
+  "tags": []
+}
